@@ -9,49 +9,62 @@ type WarningColor = Yellow;
 type ErrorColor = Red;
 
 pub fn print_logline(logline: &LogLine) {
-    match logline.severity {
-        Severity::DEBUG => print!("{}", " DBG".fg::<DebugColor>().bold()),
-        Severity::INFO => print!("{}", "INFO".fg::<InfoColor>().bold()),
-        Severity::WARNING => print!("{}", "WARN".fg::<WarningColor>().bold()),
-        Severity::ERROR => print!("{}", " ERR".fg::<ErrorColor>().bold()),
-        Severity::CRITICAL => print!("{}", " ERR".fg::<ErrorColor>().bold()),
-    };
+    match logline {
+        LogLine::Invalid(logline) => {
+            print_message::<Default>(&Severity::INFO, &logline.text);
+        }
+        LogLine::Valid(logline) => {
+            match logline.severity {
+                Severity::DEBUG => print!("{}", " DBG".fg::<DebugColor>().bold()),
+                Severity::INFO => print!("{}", "INFO".fg::<InfoColor>().bold()),
+                Severity::WARNING => print!("{}", "WARN".fg::<WarningColor>().bold()),
+                Severity::ERROR => print!("{}", " ERR".fg::<ErrorColor>().bold()),
+                Severity::CRITICAL => print!("{}", " ERR".fg::<ErrorColor>().bold()),
+            };
 
-    print!(
-        " {}",
-        logline
-            .get_date()
-            .format("%H:%M %S%.3f")
-            .fg::<Blue>()
-            .bold()
-    );
+            print!(
+                " {}",
+                logline
+                    .get_date()
+                    .format("%H:%M %S%.3f")
+                    .fg::<Blue>()
+                    .bold()
+            );
 
-    print!(" {}", logline.get_logger().fg::<WarningColor>().bold());
+            print!(" {}", logline.get_logger().fg::<WarningColor>().bold());
 
-    match logline.severity {
-        Severity::DEBUG => print_message::<DebugColor>(logline),
-        Severity::INFO => print_message::<InfoColor>(logline),
-        Severity::WARNING => print_message::<WarningColor>(logline),
-        Severity::ERROR => print_message::<ErrorColor>(logline),
-        _ => print_message::<Default>(logline),
+            match logline.severity {
+                Severity::DEBUG => {
+                    print_message::<DebugColor>(&logline.severity, logline.get_message())
+                }
+                Severity::INFO => {
+                    print_message::<InfoColor>(&logline.severity, logline.get_message())
+                }
+                Severity::WARNING => {
+                    print_message::<WarningColor>(&logline.severity, logline.get_message())
+                }
+                Severity::ERROR => {
+                    print_message::<ErrorColor>(&logline.severity, logline.get_message())
+                }
+                _ => print_message::<Default>(&logline.severity, logline.get_message()),
+            }
+        }
     }
 
     print!("\n");
 }
 
-fn print_message<T: Color>(logline: &LogLine) {
-    let msg = logline.get_message();
-
-    if !is_multiline(msg) {
-        match logline.severity {
-            Severity::ERROR => print!(" {}", msg.fg::<T>()),
-            _ => print!(" {}", msg),
+fn print_message<T: Color>(severity: &Severity, message: &str) {
+    if !is_multiline(message) {
+        match severity {
+            Severity::ERROR => print!(" {}", message.fg::<T>()),
+            _ => print!(" {}", message),
         }
     } else {
-        for line in msg.split('\n') {
+        for line in message.split('\n') {
             print!("\n   {}", "|".fg::<T>().bold());
 
-            match logline.severity {
+            match severity {
                 Severity::ERROR => print!(" {}", line.fg::<ErrorColor>()),
                 _ => print!(" {}", line),
             }

@@ -98,16 +98,20 @@ impl<T: Read> Iterator for LogParser<T> {
             }
         }
 
+        if pos.message == 0 {
+            return Some(LogLine::Invalid(InvalidLogLine { text }));
+        }
+
         let severity: Severity = match pos.severity.end {
             0 => Severity::INFO, // Default to INFO if the line can't be parsed
             _ => text[pos.severity.clone()].into(),
         };
 
-        Some(LogLine {
+        Some(LogLine::Valid(ValidLogLine {
             text: text,
             severity: severity,
             positions: pos,
-        })
+        }))
     }
 }
 
@@ -132,13 +136,13 @@ impl From<&str> for Severity {
     }
 }
 
-pub struct LogLine {
+pub struct ValidLogLine {
     text: String,
     pub severity: Severity,
     positions: LogLineRanges,
 }
 
-impl LogLine {
+impl ValidLogLine {
     pub fn get_date(&self) -> NaiveDateTime {
         let datetime_text = &self.text[self.positions.date.clone()];
 
@@ -155,10 +159,6 @@ impl LogLine {
         let range = self.positions.logger.clone();
         return &self.text[range];
     }
-    // pub fn get_thread(&self) -> &str {
-    //     let range = self.positions.thread.clone();
-    //     return &self.text[range];
-    // }
     pub fn get_message(&self) -> &str {
         return &self.text[self.positions.message..];
     }
@@ -202,4 +202,13 @@ fn parse_line(line: &str) -> Option<LogLineRanges> {
     }
 
     return Some(pos);
+}
+
+pub struct InvalidLogLine {
+    pub text: String,
+}
+
+pub enum LogLine {
+    Valid(ValidLogLine),
+    Invalid(InvalidLogLine),
 }
