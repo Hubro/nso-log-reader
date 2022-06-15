@@ -1,3 +1,4 @@
+use chrono::NaiveDateTime;
 use std::fs::File;
 use std::io::{BufReader, Lines};
 use std::ops::Range;
@@ -113,9 +114,17 @@ impl LogLine {
         let range = self.positions.severity.clone();
         return &self.text[range];
     }
-    pub fn get_date(&self) -> &str {
-        let range = self.positions.date.clone();
-        return &self.text[range];
+    pub fn get_date(&self) -> NaiveDateTime {
+        let datetime_text = &self.text[self.positions.date.clone()];
+
+        let test = datetime_text.split('.').next().unwrap();
+
+        match NaiveDateTime::parse_from_str(test, "%d-%b-%Y::%H:%M:%S") {
+            Ok(datetime) => datetime,
+            Err(e) => {
+                panic!("Fatal error, failed to parse time {:?}: {}", test, e);
+            }
+        }
     }
     pub fn get_logger(&self) -> &str {
         let range = self.positions.logger.clone();
