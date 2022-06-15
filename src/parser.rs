@@ -189,13 +189,9 @@ fn parse_line(line: &str) -> Option<LogLineRanges> {
             .0;
 
     pos.thread.start = pos.logger.end + 1;
-    pos.thread.end = pos.thread.start
-        + line[pos.thread.start..]
-            .char_indices()
-            .find(|(_, x)| *x == ' ')?
-            .0;
+    pos.thread.end = pos.thread.start + line[pos.thread.start..].find(": ")?;
 
-    pos.message = pos.thread.end + 3;
+    pos.message = pos.thread.end + 4;
 
     if pos.message >= line.chars().count() {
         return None;
