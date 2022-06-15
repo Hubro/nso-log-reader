@@ -98,24 +98,47 @@ impl<T: Read> Iterator for LogParser<T> {
             }
         }
 
+        let severity: Severity = match pos.severity.end {
+            0 => Severity::INFO, // Default to INFO if the line can't be parsed
+            _ => text[pos.severity.clone()].into(),
+        };
+
         Some(LogLine {
             text: text,
+            severity: severity,
             positions: pos,
         })
     }
 }
 
-#[derive(Debug)]
+pub enum Severity {
+    DEBUG,
+    INFO,
+    WARNING,
+    ERROR,
+    CRITICAL,
+}
+
+impl From<&str> for Severity {
+    fn from(text: &str) -> Self {
+        match text {
+            "DEBUG" => Severity::DEBUG,
+            "INFO" => Severity::INFO,
+            "WARNING" => Severity::WARNING,
+            "ERROR" => Severity::ERROR,
+            "CRITICAL" => Severity::CRITICAL,
+            _ => panic!("Unexpected severity: {}", text),
+        }
+    }
+}
+
 pub struct LogLine {
     text: String,
+    pub severity: Severity,
     positions: LogLineRanges,
 }
 
 impl LogLine {
-    pub fn get_severity(&self) -> &str {
-        let range = self.positions.severity.clone();
-        return &self.text[range];
-    }
     pub fn get_date(&self) -> NaiveDateTime {
         let datetime_text = &self.text[self.positions.date.clone()];
 
