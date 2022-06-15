@@ -1,0 +1,6 @@
+
+# Developer-local files
+/.nvimrc
+
+# Build results
+/target
