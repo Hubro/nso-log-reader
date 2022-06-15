@@ -1,17 +1,16 @@
 use chrono::NaiveDateTime;
-use std::fs::File;
-use std::io::{BufReader, Lines};
+use std::io::{BufReader, Lines, Read};
 use std::ops::Range;
 
-pub fn parse_log(lines: Lines<BufReader<File>>) -> LogParser {
+pub fn parse_log<T: Read>(lines: Lines<BufReader<T>>) -> LogParser<T> {
     LogParser {
         lines: lines,
         buffer: None,
     }
 }
 
-pub struct LogParser {
-    lines: Lines<BufReader<File>>,
+pub struct LogParser<T: Read> {
+    lines: Lines<BufReader<T>>,
     buffer: Option<String>,
 }
 
@@ -36,7 +35,7 @@ impl LogLineRanges {
     }
 }
 
-impl LogParser {
+impl<T: Read> LogParser<T> {
     /// Give the next log line
     ///
     /// This will first give the buffered line, if any.
@@ -64,7 +63,7 @@ impl LogParser {
     }
 }
 
-impl Iterator for LogParser {
+impl<T: Read> Iterator for LogParser<T> {
     type Item = LogLine;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -90,8 +89,11 @@ impl Iterator for LogParser {
                     break;
                 }
                 None => {
-                    // Add the next line to the message of the curent line
-                    text = format!("{}\n{}", text, next_line);
+                    // Ignore empty lines
+                    if next_line.trim().len() > 0 {
+                        // Add the next line to the message of the curent line
+                        text = format!("{}\n{}", text, next_line);
+                    }
                 }
             }
         }
@@ -119,7 +121,7 @@ impl LogLine {
 
         let test = datetime_text.split('.').next().unwrap();
 
-        match NaiveDateTime::parse_from_str(test, "%d-%b-%Y::%H:%M:%S") {
+        match NaiveDateTime::parse_from_str(datetime_text, "%d-%b-%Y::%H:%M:%S%.3f") {
             Ok(datetime) => datetime,
             Err(e) => {
                 panic!("Fatal error, failed to parse time {:?}: {}", test, e);
@@ -130,10 +132,10 @@ impl LogLine {
         let range = self.positions.logger.clone();
         return &self.text[range];
     }
-    pub fn get_thread(&self) -> &str {
-        let range = self.positions.thread.clone();
-        return &self.text[range];
-    }
+    // pub fn get_thread(&self) -> &str {
+    //     let range = self.positions.thread.clone();
+    //     return &self.text[range];
+    // }
     pub fn get_message(&self) -> &str {
         return &self.text[self.positions.message..];
     }
@@ -167,10 +169,10 @@ fn parse_line(line: &str) -> Option<LogLineRanges> {
     pos.thread.end = pos.thread.start
         + line[pos.thread.start..]
             .char_indices()
-            .find(|(_, x)| *x == ':')?
+            .find(|(_, x)| *x == ' ')?
             .0;
 
-    pos.message = pos.thread.end + 4;
+    pos.message = pos.thread.end + 3;
 
     if pos.message >= line.chars().count() {
         return None;
