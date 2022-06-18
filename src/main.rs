@@ -13,9 +13,19 @@ mod formatting;
 mod parser;
 mod pattern_matching;
 
+const HELP_TEXT: &str = "
+    Input one or more patterns to match a log file to read. The selected log
+    file has to match every pattern you input.
+
+    Example:
+
+    $ nso-log-reader cfs l3vpn
+";
+
 #[derive(Debug, Parser)]
+#[clap(about = HELP_TEXT)]
 struct Args {
-    /// Read a NSO log file by fuzzy pattern
+    /// Read a NSO log file by matching substrings
     #[clap(value_parser, multiple_values = true)]
     patterns: Vec<String>,
 
@@ -75,10 +85,15 @@ fn parse_from_file(args: &Args) -> subprocess::Result<()> {
     let filepath = args.logfile.as_ref().unwrap();
 
     if args.follow {
-        let tail_cmd = Exec::cmd("tail").args(&["-f", filepath]);
+        let tail_cmd = Exec::cmd("tail").args(&["-f", "-n", "100", filepath]);
         let self_cmd = Exec::cmd(std::env::args().next().unwrap());
 
         (tail_cmd | self_cmd).join().map(|_| ())
+    } else if args.cat {
+        let cat_cmd = Exec::cmd("cat").arg(filepath);
+        let self_cmd = Exec::cmd(std::env::args().next().unwrap());
+
+        (cat_cmd | self_cmd).join().map(|_| ())
     } else {
         let cat_cmd = Exec::cmd("cat").arg(filepath);
         let self_cmd = Exec::cmd(std::env::args().next().unwrap());
