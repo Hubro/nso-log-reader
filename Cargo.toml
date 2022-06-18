@@ -3,8 +3,10 @@ name = "nso-log-reader"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
+atty = "0.2"
 chrono = "0.4"
+clap = { version = "3.2", features = ["derive"] }
+glob = "0.3"
 owo-colors = "3"
+subprocess = "0.2"
