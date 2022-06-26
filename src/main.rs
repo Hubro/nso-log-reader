@@ -47,6 +47,16 @@ struct Args {
 }
 
 impl Args {
+    fn custom_parse() -> Self {
+        let mut args = Args::parse();
+
+        if args.follow {
+            args.time = true;
+        }
+
+        args
+    }
+
     /// Creates and returns a command for running this application with these arguments
     ///
     /// Only includes options, as that's currently the only use case.
@@ -69,7 +79,7 @@ impl Args {
 }
 
 fn main() {
-    let args = Args::parse();
+    let args = Args::custom_parse();
 
     if args.logfile.is_some() {
         let result = parse_from_file(&args);
