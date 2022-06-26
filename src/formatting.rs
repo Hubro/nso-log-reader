@@ -8,7 +8,13 @@ type InfoColor = Green;
 type WarningColor = Yellow;
 type ErrorColor = Red;
 
-pub fn print_logline(logline: &LogLine) {
+#[derive(Debug)]
+pub enum DateFormat {
+    Full,
+    TimeOnly,
+}
+
+pub fn print_logline(logline: &LogLine, dateformat: &DateFormat) {
     match logline {
         LogLine::Invalid(logline) => {
             print_message::<Default>(&Severity::INFO, &logline.text);
@@ -26,7 +32,10 @@ pub fn print_logline(logline: &LogLine) {
                 " {}",
                 logline
                     .get_date()
-                    .format("%H:%M %S%.3f")
+                    .format(match dateformat {
+                        DateFormat::Full => "%Y-%m-%d %H:%M:%S%.3f",
+                        DateFormat::TimeOnly => "%H:%M %S%.3f",
+                    })
                     .fg::<Blue>()
                     .bold()
             );

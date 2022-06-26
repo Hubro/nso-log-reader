@@ -5,7 +5,7 @@ use std::process::exit;
 use clap::{CommandFactory, Parser};
 use subprocess::Exec;
 
-use crate::formatting::print_logline;
+use crate::formatting::{print_logline, DateFormat};
 use crate::parser::parse_log;
 use crate::pattern_matching::match_pattern;
 
@@ -40,13 +40,39 @@ struct Args {
     /// Print the entire file rather than paging it
     #[clap(short, long)]
     cat: bool,
+
+    /// Show only the time, not the full date (implied when using "-f")
+    #[clap(short, long)]
+    time: bool,
+}
+
+impl Args {
+    /// Creates and returns a command for running this application with these arguments
+    ///
+    /// Only includes options, as that's currently the only use case.
+    fn make_cmd(self: &Self) -> Exec {
+        let self_cmd = std::env::args().next().unwrap();
+        let mut cmd = Exec::cmd(self_cmd);
+
+        if self.follow {
+            cmd = cmd.arg("-f");
+        }
+        if self.cat {
+            cmd = cmd.arg("-c");
+        }
+        if self.time {
+            cmd = cmd.arg("-t");
+        }
+
+        cmd
+    }
 }
 
 fn main() {
-    let clap_args = Args::parse();
+    let args = Args::parse();
 
-    if clap_args.logfile.is_some() {
-        let result = parse_from_file(&clap_args);
+    if args.logfile.is_some() {
+        let result = parse_from_file(&args);
 
         if let Err(error) = result {
             println!("{}", error);
@@ -55,8 +81,8 @@ fn main() {
         return;
     }
 
-    if clap_args.patterns.len() > 0 {
-        let result = parse_from_pattern(&clap_args);
+    if args.patterns.len() > 0 {
+        let result = parse_from_pattern(&args);
 
         if let Err(error) = result {
             println!("{}", error);
@@ -70,33 +96,40 @@ fn main() {
         return Args::command().print_help().unwrap();
     }
 
-    return parse_from_stdin();
+    return parse_from_stdin(&args);
 }
 
-fn parse_from_stdin() {
+fn parse_from_stdin(args: &Args) {
     let bufreader = BufReader::new(std::io::stdin());
 
+    dbg!(args.time);
+
     for line in parse_log(bufreader.lines()) {
-        print_logline(&line);
+        print_logline(
+            &line,
+            match args.time {
+                true => &DateFormat::TimeOnly,
+                false => &DateFormat::Full,
+            },
+        );
     }
 }
 
 fn parse_from_file(args: &Args) -> subprocess::Result<()> {
     let filepath = args.logfile.as_ref().unwrap();
 
+    let self_cmd = args.make_cmd();
+
     if args.follow {
         let tail_cmd = Exec::cmd("tail").args(&["-f", "-n", "100", filepath]);
-        let self_cmd = Exec::cmd(std::env::args().next().unwrap());
 
         (tail_cmd | self_cmd).join().map(|_| ())
     } else if args.cat {
         let cat_cmd = Exec::cmd("cat").arg(filepath);
-        let self_cmd = Exec::cmd(std::env::args().next().unwrap());
 
         (cat_cmd | self_cmd).join().map(|_| ())
     } else {
         let cat_cmd = Exec::cmd("cat").arg(filepath);
-        let self_cmd = Exec::cmd(std::env::args().next().unwrap());
         let pager_cmd = Exec::cmd("less").arg("-SR");
 
         (cat_cmd | self_cmd | pager_cmd).join().map(|_| ())
@@ -137,6 +170,7 @@ fn parse_from_pattern(args: &Args) -> Result<(), String> {
                 logfile: Some(filepath),
                 follow: args.follow,
                 cat: args.cat,
+                time: args.time,
             };
 
             return parse_from_file(&new_args).map_err(|e| e.to_string());
