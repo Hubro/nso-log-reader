@@ -1,4 +1,5 @@
-use chrono::NaiveDateTime;
+use chrono::offset::{Local, Utc};
+use chrono::{DateTime, NaiveDateTime};
 use std::io::{BufReader, Lines, Read};
 use std::ops::Range;
 
@@ -143,17 +144,22 @@ pub struct ValidLogLine {
 }
 
 impl ValidLogLine {
-    pub fn get_date(&self) -> NaiveDateTime {
+    pub fn get_date(&self) -> DateTime<Local> {
         let datetime_text = &self.text[self.positions.date.clone()];
 
         let test = datetime_text.split('.').next().unwrap();
 
-        match NaiveDateTime::parse_from_str(datetime_text, "%d-%b-%Y::%H:%M:%S%.3f") {
-            Ok(datetime) => datetime,
-            Err(e) => {
-                panic!("Fatal error, failed to parse time {:?}: {}", test, e);
-            }
-        }
+        let naivedatetime =
+            match NaiveDateTime::parse_from_str(datetime_text, "%d-%b-%Y::%H:%M:%S%.3f") {
+                Ok(datetime) => datetime,
+                Err(e) => {
+                    panic!("Fatal error, failed to parse time {:?}: {}", test, e);
+                }
+            };
+
+        let utcdatetime = DateTime::<Utc>::from_utc(naivedatetime, Utc);
+
+        DateTime::from(utcdatetime)
     }
     pub fn get_logger(&self) -> &str {
         let range = self.positions.logger.clone();
