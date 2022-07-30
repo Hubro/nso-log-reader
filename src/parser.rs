@@ -5,7 +5,7 @@ use std::ops::Range;
 
 pub fn parse_log<T: Read>(lines: Lines<BufReader<T>>) -> LogParser<T> {
     LogParser {
-        lines: lines,
+        lines,
         buffer: None,
     }
 }
@@ -48,10 +48,10 @@ impl<T: Read> LogParser<T> {
         let read = self.lines.next()?;
 
         match read {
-            Ok(line) => return Some(line),
+            Ok(line) => Some(line),
 
             // Failed to read? Probably means a STDIN pipe was closed.
-            Err(_) => return None,
+            Err(_) => None,
         }
     }
 
@@ -70,19 +70,14 @@ impl<T: Read> Iterator for LogParser<T> {
     fn next(&mut self) -> Option<Self::Item> {
         let mut text = self.take_next_line()?;
 
-        let pos = match parse_line(&text) {
+        let positions = match parse_line(&text) {
             Some(x) => x,
             None => LogLineRanges::new(),
         };
 
         // This loop checks upcoming lines and adds them to the message of the current log line if
         // they can't be parsed
-        loop {
-            let next_line = match self.take_next_line() {
-                Some(x) => x,
-                None => break,
-            };
-
+        while let Some(next_line) = self.take_next_line() {
             match parse_line(&next_line) {
                 // The next line can be parsed as a log line, so we put it back
                 Some(_) => {
@@ -91,7 +86,7 @@ impl<T: Read> Iterator for LogParser<T> {
                 }
                 None => {
                     // Ignore empty lines
-                    if next_line.trim().len() > 0 {
+                    if !next_line.trim().is_empty() {
                         // Add the next line to the message of the curent line
                         text = format!("{}\n{}", text, next_line);
                     }
@@ -99,39 +94,39 @@ impl<T: Read> Iterator for LogParser<T> {
             }
         }
 
-        if pos.message == 0 {
+        if positions.message == 0 {
             return Some(LogLine::Invalid(InvalidLogLine { text }));
         }
 
-        let severity: Severity = match pos.severity.end {
-            0 => Severity::INFO, // Default to INFO if the line can't be parsed
-            _ => text[pos.severity.clone()].into(),
+        let severity: Severity = match positions.severity.end {
+            0 => Severity::Info, // Default to INFO if the line can't be parsed
+            _ => text[positions.severity.clone()].into(),
         };
 
         Some(LogLine::Valid(ValidLogLine {
-            text: text,
-            severity: severity,
-            positions: pos,
+            text,
+            severity,
+            positions,
         }))
     }
 }
 
 pub enum Severity {
-    DEBUG,
-    INFO,
-    WARNING,
-    ERROR,
-    CRITICAL,
+    Debug,
+    Info,
+    Warning,
+    Error,
+    Critical,
 }
 
 impl From<&str> for Severity {
     fn from(text: &str) -> Self {
         match text {
-            "DEBUG" => Severity::DEBUG,
-            "INFO" => Severity::INFO,
-            "WARNING" => Severity::WARNING,
-            "ERROR" => Severity::ERROR,
-            "CRITICAL" => Severity::CRITICAL,
+            "DEBUG" => Severity::Debug,
+            "INFO" => Severity::Info,
+            "WARNING" => Severity::Warning,
+            "ERROR" => Severity::Error,
+            "CRITICAL" => Severity::Critical,
             _ => panic!("Unexpected severity: {}", text),
         }
     }
@@ -163,17 +158,17 @@ impl ValidLogLine {
     }
     pub fn get_logger(&self) -> &str {
         let range = self.positions.logger.clone();
-        return &self.text[range];
+        &self.text[range]
     }
     pub fn get_message(&self) -> &str {
-        return &self.text[self.positions.message..];
+        &self.text[self.positions.message..]
     }
 }
 
 fn parse_line(line: &str) -> Option<LogLineRanges> {
     let mut pos = LogLineRanges::new();
 
-    if line.chars().nth(0)? != '<' {
+    if line.chars().next()? != '<' {
         return None;
     }
 
@@ -203,7 +198,7 @@ fn parse_line(line: &str) -> Option<LogLineRanges> {
         return None;
     }
 
-    return Some(pos);
+    Some(pos)
 }
 
 pub struct InvalidLogLine {

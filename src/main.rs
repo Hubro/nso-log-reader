@@ -60,7 +60,7 @@ impl Args {
     /// Creates and returns a command for running this application with these arguments
     ///
     /// Only includes options, as that's currently the only use case.
-    fn make_cmd(self: &Self) -> Exec {
+    fn make_cmd(&self) -> Exec {
         let self_cmd = std::env::args().next().unwrap();
         let mut cmd = Exec::cmd(self_cmd);
 
@@ -91,7 +91,7 @@ fn main() {
         return;
     }
 
-    if args.patterns.len() > 0 {
+    if !args.patterns.is_empty() {
         let result = parse_from_pattern(&args);
 
         if let Err(error) = result {
@@ -106,7 +106,7 @@ fn main() {
         return Args::command().print_help().unwrap();
     }
 
-    return parse_from_stdin(&args);
+    parse_from_stdin(&args)
 }
 
 fn parse_from_stdin(args: &Args) {
@@ -183,7 +183,7 @@ fn parse_from_pattern(args: &Args) -> Result<(), String> {
                 time: args.time,
             };
 
-            return parse_from_file(&new_args).map_err(|e| e.to_string());
+            parse_from_file(&new_args).map_err(|e| e.to_string())
         }
     }
 }

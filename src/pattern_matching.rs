@@ -11,7 +11,7 @@ pub fn match_pattern(patterns: &Vec<String>) -> Result<Vec<String>, String> {
         .map(|x| x.unwrap())
         .collect::<Vec<_>>();
 
-    if log_files.len() == 0 {
+    if log_files.is_empty() {
         return Err(format!("Couldn't find any log files in {}/logs/", nso_run));
     }
 
@@ -31,5 +31,5 @@ pub fn match_pattern(patterns: &Vec<String>) -> Result<Vec<String>, String> {
         .filter(matches_patterns)
         .collect();
 
-    return Ok(matches);
+    Ok(matches)
 }
