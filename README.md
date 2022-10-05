@@ -20,3 +20,6 @@ Read NSO logs with ease and comfort.
     --- 15 seconds later -------------------------------------------------------
 
     Perhaps make it cover the full terminal width?
+
+[ ] Allow filtering by severity, that way the user can keep debug logging
+    enabled but only have to see them when needed.
