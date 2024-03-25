@@ -1,116 +1,11 @@
-use chrono::offset::{Local, Utc};
-use chrono::{DateTime, NaiveDateTime};
-use std::io::{BufReader, Lines, Read};
-use std::ops::Range;
+use std::{
+    io::{BufReader, Lines, Read},
+    str::FromStr,
+};
 
-pub fn parse_log<T: Read>(lines: Lines<BufReader<T>>) -> LogParser<T> {
-    LogParser {
-        lines,
-        buffer: None,
-    }
-}
+use chrono::{TimeZone, Utc};
 
-pub struct LogParser<T: Read> {
-    lines: Lines<BufReader<T>>,
-    buffer: Option<String>,
-}
-
-#[derive(Debug)]
-struct LogLineRanges {
-    severity: Range<usize>,
-    date: Range<usize>,
-    logger: Range<usize>,
-    thread: Range<usize>,
-    message: usize, // Message is the rest of the line from this index
-}
-
-impl LogLineRanges {
-    fn new() -> Self {
-        Self {
-            severity: 0..0,
-            date: 0..0,
-            logger: 0..0,
-            thread: 0..0,
-            message: 0,
-        }
-    }
-}
-
-impl<T: Read> LogParser<T> {
-    /// Give the next log line
-    ///
-    /// This will first give the buffered line, if any.
-    fn take_next_line(&mut self) -> Option<String> {
-        if let Some(line) = self.buffer.take() {
-            return Some(line);
-        }
-
-        let read = self.lines.next()?;
-
-        match read {
-            Ok(line) => Some(line),
-
-            // Failed to read? Probably means a STDIN pipe was closed.
-            Err(_) => None,
-        }
-    }
-
-    /// Put a line back into the line buffer
-    ///
-    /// The buffered line will be returned by take_next_line, basically allowing one line
-    /// read-ahead
-    fn untake_line(&mut self, line: String) {
-        self.buffer = Some(line);
-    }
-}
-
-impl<T: Read> Iterator for LogParser<T> {
-    type Item = LogLine;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let mut text = self.take_next_line()?;
-
-        let positions = match parse_line(&text) {
-            Some(x) => x,
-            None => LogLineRanges::new(),
-        };
-
-        // This loop checks upcoming lines and adds them to the message of the current log line if
-        // they can't be parsed
-        while let Some(next_line) = self.take_next_line() {
-            match parse_line(&next_line) {
-                // The next line can be parsed as a log line, so we put it back
-                Some(_) => {
-                    self.untake_line(next_line);
-                    break;
-                }
-                None => {
-                    // Ignore empty lines
-                    if !next_line.trim().is_empty() {
-                        // Add the next line to the message of the curent line
-                        text = format!("{}\n{}", text, next_line);
-                    }
-                }
-            }
-        }
-
-        if positions.message == 0 {
-            return Some(LogLine::Invalid(InvalidLogLine { text }));
-        }
-
-        let severity: Severity = match positions.severity.end {
-            0 => Severity::Info, // Default to INFO if the line can't be parsed
-            _ => text[positions.severity.clone()].into(),
-        };
-
-        Some(LogLine::Valid(ValidLogLine {
-            text,
-            severity,
-            positions,
-        }))
-    }
-}
-
+#[derive(Clone, Copy, Debug)]
 pub enum Severity {
     Debug,
     Info,
@@ -119,93 +14,121 @@ pub enum Severity {
     Critical,
 }
 
-impl From<&str> for Severity {
-    fn from(text: &str) -> Self {
-        match text {
-            "DEBUG" => Severity::Debug,
-            "INFO" => Severity::Info,
-            "WARNING" => Severity::Warning,
-            "ERROR" => Severity::Error,
-            "CRITICAL" => Severity::Critical,
-            _ => panic!("Unexpected severity: {}", text),
-        }
-    }
-}
-
-pub struct ValidLogLine {
-    text: String,
+#[derive(Debug)]
+pub struct NormalLogLine {
     pub severity: Severity,
-    positions: LogLineRanges,
+    pub datetime: chrono::DateTime<chrono::Utc>,
+    pub logger_name: String,
+    pub thread: String,
+    pub message: String,
 }
 
-impl ValidLogLine {
-    pub fn get_date(&self) -> DateTime<Local> {
-        let datetime_text = &self.text[self.positions.date.clone()];
+impl FromStr for NormalLogLine {
+    type Err = ();
 
-        let test = datetime_text.split('.').next().unwrap();
-
-        let naivedatetime =
-            match NaiveDateTime::parse_from_str(datetime_text, "%d-%b-%Y::%H:%M:%S%.3f") {
-                Ok(datetime) => datetime,
-                Err(e) => {
-                    panic!("Fatal error, failed to parse time {:?}: {}", test, e);
-                }
-            };
-
-        let utcdatetime = DateTime::<Utc>::from_utc(naivedatetime, Utc);
-
-        DateTime::from(utcdatetime)
-    }
-    pub fn get_logger(&self) -> &str {
-        let range = self.positions.logger.clone();
-        &self.text[range]
-    }
-    pub fn get_message(&self) -> &str {
-        &self.text[self.positions.message..]
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        parse_line(s).ok_or(())
     }
 }
 
-fn parse_line(line: &str) -> Option<LogLineRanges> {
-    let mut pos = LogLineRanges::new();
+#[derive(Debug)]
+pub struct ContinuationLogLine {
+    // None means unknown, can happen if the log starts on a continuation
+    pub severity: Option<Severity>,
+    pub text: String,
+}
 
+#[derive(Debug)]
+pub enum LogLine {
+    Normal(NormalLogLine),
+    Continuation(ContinuationLogLine),
+}
+
+pub struct LogParser<T: Read> {
+    lines: Lines<BufReader<T>>,
+    severity: Option<Severity>, // Keeps track of the previous line's severity
+}
+
+impl<T: Read> Iterator for LogParser<T> {
+    type Item = LogLine;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let line = self.lines.next()?.expect("Failed to read a line");
+
+        Some(match line.parse::<NormalLogLine>() {
+            Ok(log_line) => {
+                self.severity = Some(log_line.severity.clone());
+                LogLine::Normal(log_line)
+            }
+            Err(_) => LogLine::Continuation(ContinuationLogLine {
+                severity: self.severity,
+                text: line,
+            }),
+        })
+    }
+}
+
+pub fn parse_log<T: Read>(lines: Lines<BufReader<T>>) -> LogParser<T> {
+    LogParser {
+        lines,
+        severity: None,
+    }
+}
+
+fn parse_line(line: &str) -> Option<NormalLogLine> {
     if line.chars().next()? != '<' {
         return None;
     }
 
-    pos.severity.start = 1;
-    pos.severity.end = line.char_indices().find(|(_, x)| *x == '>')?.0;
+    let severity_start = 1;
+    let severity_end = line.char_indices().find(|(_, x)| *x == '>')?.0;
 
-    pos.date.start = pos.severity.end + 2;
-    pos.date.end = pos.date.start
-        + line[pos.date.start..]
+    let severity = match &line[severity_start..severity_end] {
+        "DEBUG" => Severity::Debug,
+        "INFO" => Severity::Info,
+        "WARNING" => Severity::Warning,
+        "ERROR" => Severity::Error,
+        "CRITICAL" => Severity::Critical,
+        _ => return None,
+    };
+
+    let date_start = severity_end + 2;
+    let date_end = date_start
+        + line[date_start..]
             .char_indices()
             .find(|(_, x)| *x == ' ')?
             .0;
 
-    pos.logger.start = pos.date.end + 1;
-    pos.logger.end = pos.logger.start
-        + line[pos.logger.start..]
+    let datetime = Utc
+        .datetime_from_str(&line[date_start..date_end], "%d-%b-%Y::%H:%M:%S%.3f")
+        .ok()?;
+
+    let logger_name_start = date_end + 1;
+    let logger_name_end = logger_name_start
+        + line[logger_name_start..]
             .char_indices()
             .find(|(_, x)| *x == ' ')?
             .0;
 
-    pos.thread.start = pos.logger.end + 1;
-    pos.thread.end = pos.thread.start + line[pos.thread.start..].find(": ")?;
+    let logger_name = line[logger_name_start..logger_name_end].to_string();
 
-    pos.message = pos.thread.end + 4;
+    let thread_start = logger_name_end + 1;
+    let thread_end = thread_start + line[thread_start..].find(": ")?;
 
-    if pos.message >= line.chars().count() {
+    let thread = line[thread_start..thread_end].to_string();
+    let message_start = thread_end + 4;
+
+    if message_start >= line.chars().count() {
         return None;
     }
 
-    Some(pos)
-}
+    let message = line[thread_end + 4..].to_string();
 
-pub struct InvalidLogLine {
-    pub text: String,
-}
-
-pub enum LogLine {
-    Valid(ValidLogLine),
-    Invalid(InvalidLogLine),
+    Some(NormalLogLine {
+        severity,
+        datetime,
+        logger_name,
+        thread,
+        message,
+    })
 }

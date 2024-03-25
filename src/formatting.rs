@@ -1,6 +1,5 @@
 use crate::parser::{LogLine, Severity};
 use owo_colors::colors::{Blue, Default, Green, Magenta, Red, Yellow};
-use owo_colors::Color;
 use owo_colors::OwoColorize;
 
 type DebugColor = Magenta;
@@ -16,10 +15,18 @@ pub enum DateFormat {
 
 pub fn print_logline(logline: &LogLine, dateformat: &DateFormat) {
     match logline {
-        LogLine::Invalid(logline) => {
-            print_message::<Default>(&Severity::Info, &logline.text);
+        LogLine::Continuation(logline) => {
+            let text = format!("   | {}", logline.text);
+
+            match logline.severity {
+                // If part of an error, print the whole message red, for visibility
+                Some(Severity::Error | Severity::Critical) => {
+                    print!("{}", text.fg::<ErrorColor>())
+                }
+                _ => print!("{}", text.fg::<Default>()),
+            }
         }
-        LogLine::Valid(logline) => {
+        LogLine::Normal(logline) => {
             match logline.severity {
                 Severity::Debug => print!("{}", " DBG".fg::<DebugColor>().bold()),
                 Severity::Info => print!("{}", "INFO".fg::<InfoColor>().bold()),
@@ -31,7 +38,7 @@ pub fn print_logline(logline: &LogLine, dateformat: &DateFormat) {
             print!(
                 " {}",
                 logline
-                    .get_date()
+                    .datetime
                     .format(match dateformat {
                         DateFormat::Full => "%Y-%m-%d %H:%M:%S%.3f",
                         DateFormat::TimeOnly => "%H:%M %S%.3f",
@@ -40,48 +47,17 @@ pub fn print_logline(logline: &LogLine, dateformat: &DateFormat) {
                     .bold()
             );
 
-            print!(" {}", logline.get_logger().fg::<WarningColor>().bold());
+            print!(" {}", logline.logger_name.fg::<WarningColor>().bold());
 
             match logline.severity {
-                Severity::Debug => {
-                    print_message::<DebugColor>(&logline.severity, logline.get_message())
+                // If part of an error, print the whole message red, for visibility
+                Severity::Error | Severity::Critical => {
+                    print!(": {}", logline.message.fg::<ErrorColor>())
                 }
-                Severity::Info => {
-                    print_message::<InfoColor>(&logline.severity, logline.get_message())
-                }
-                Severity::Warning => {
-                    print_message::<WarningColor>(&logline.severity, logline.get_message())
-                }
-                Severity::Error => {
-                    print_message::<ErrorColor>(&logline.severity, logline.get_message())
-                }
-                _ => print_message::<Default>(&logline.severity, logline.get_message()),
+                _ => print!(": {}", logline.message.fg::<Default>()),
             }
         }
     }
 
     println!();
-}
-
-fn print_message<T: Color>(severity: &Severity, message: &str) {
-    if !is_multiline(message) {
-        match severity {
-            Severity::Error => print!(" {}", message.fg::<T>()),
-            _ => print!(" {}", message),
-        }
-    } else {
-        for line in message.split('\n') {
-            print!("\n   {}", "|".fg::<T>().bold());
-
-            match severity {
-                Severity::Error => print!(" {}", line.fg::<ErrorColor>()),
-                _ => print!(" {}", line),
-            }
-        }
-    }
-}
-
-/// Returns true if the input string contains more than one line
-fn is_multiline(text: &str) -> bool {
-    text.find('\n').is_some()
 }
