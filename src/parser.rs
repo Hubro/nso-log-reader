@@ -119,13 +119,19 @@ fn parse_line(line: &str) -> Option<NormalLogLine> {
     let thread_end = thread_start + line[thread_start..].find(": ")?;
 
     let thread = line[thread_start..thread_end].to_string();
-    let message_start = thread_end + 4;
+    let mut message_start = thread_end + 2;
+
+    // ncs-python-vm-*.log (for some reason) uses ": - " as the message delimiter, but
+    // ncs-python-vm.log doesn't
+    if &line[message_start..message_start + 2] == "- " {
+        message_start = message_start + 2;
+    }
 
     if message_start >= line.chars().count() {
         return None;
     }
 
-    let message = line[thread_end + 4..].to_string();
+    let message = line[message_start..].to_string();
 
     Some(NormalLogLine {
         severity,
