@@ -1,4 +1,5 @@
 use std::io::{BufRead, BufReader};
+use std::cmp::Ordering;
 use std::path::Path;
 use std::process::exit;
 
@@ -14,8 +15,9 @@ mod parser;
 mod pattern_matching;
 
 const HELP_TEXT: &str = "
-    Input one or more patterns to match a log file to read. The selected log
-    file has to match every pattern you input.
+    Input one or more patterns to match a log file to read. The selected log file has to match
+    every pattern you input. If multiple log files match, the one with the shortest name will be
+    selected.
 
     Example:
 
@@ -44,6 +46,10 @@ struct Args {
     /// Show only the time, not the full date (implied when using "-f")
     #[clap(short, long)]
     time: bool,
+
+    /// Print matches and exit, useful for troubleshooting
+    #[clap(long)]
+    print_matches: bool,
 }
 
 impl Args {
@@ -147,43 +153,52 @@ fn parse_from_file(args: &Args) -> subprocess::Result<()> {
 fn parse_from_pattern(args: &Args) -> Result<(), String> {
     let patterns = &args.patterns;
 
-    let matches = match match_pattern(patterns) {
+    let mut matches = match match_pattern(patterns) {
         Ok(x) => x,
         Err(x) => return Err(format!("Failed to search for log files: {}", x)),
     };
 
-    match matches.len() {
-        0 => Err(format!("Pattern {:?} matched no log files", patterns)),
-        2.. => {
-            let file_list = matches
+    matches.sort_by(|a, b| match a.len().cmp(&b.len()) {
+        Ordering::Equal => a.cmp(&b),
+        x => x,
+    });
+
+    if args.print_matches {
+        println!(
+            "{}",
+            matches
                 .iter()
-                .map(|x| "- ".to_string() + x)
+                .enumerate()
+                .map(|(i, x)| {
+                    if i == 0 {
+                        "* ".to_string() + x
+                    } else {
+                        "- ".to_string() + x
+                    }
+                })
                 .collect::<Vec<_>>()
-                .join("\n");
+                .join("\n")
+        );
 
-            Err(format!(
-                "Pattern matched more than one file:\n{}",
-                file_list
-            ))
-        }
-        _ => {
-            let filepath = format!(
-                "{}/logs/{}",
-                std::env::var("NSO_RUN_DIR").unwrap(),
-                &matches[0]
-            );
-
-            let new_args = Args {
-                patterns: vec![],
-                logfile: Some(filepath),
-                follow: args.follow,
-                cat: args.cat,
-                time: args.time,
-            };
-
-            parse_from_file(&new_args).map_err(|e| e.to_string())
-        }
+        return Ok(());
     }
+
+    let filepath = format!(
+        "{}/logs/{}",
+        std::env::var("NSO_RUN_DIR").unwrap(),
+        &matches[0],
+    );
+
+    let new_args = Args {
+        patterns: vec![],
+        logfile: Some(filepath),
+        follow: args.follow,
+        cat: args.cat,
+        time: args.time,
+        print_matches: args.print_matches,
+    };
+
+    parse_from_file(&new_args).map_err(|e| e.to_string())
 }
 
 fn file_exists(filepath: &str) -> Result<String, String> {
