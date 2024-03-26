@@ -1,5 +1,6 @@
-use std::io::{BufRead, BufReader};
 use std::cmp::Ordering;
+use std::fs::File;
+use std::io::{copy, BufRead, BufReader};
 use std::path::Path;
 use std::process::exit;
 
@@ -32,7 +33,7 @@ struct Args {
     patterns: Vec<String>,
 
     /// The path to a log file to parse
-    #[clap(short, long, value_parser = file_exists)]
+    #[clap(short = 'F', long, value_parser = file_exists)]
     logfile: Option<String>,
 
     /// Tail the file rather than paging it
@@ -130,23 +131,38 @@ fn parse_from_stdin(args: &Args) {
 }
 
 fn parse_from_file(args: &Args) -> subprocess::Result<()> {
-    let filepath = args.logfile.as_ref().unwrap();
+    let filepath = Path::new(args.logfile.as_ref().unwrap());
+    let filename = filepath.file_name().unwrap().to_str().unwrap();
 
-    let self_cmd = args.make_cmd();
+    let self_cmd = args.make_cmd().stdin(File::open(filepath).unwrap());
 
     if args.follow {
-        let tail_cmd = Exec::cmd("tail").args(&["-f", "-n", "100", filepath]);
+        let tail_cmd = Exec::cmd("tail").args(&["-f", "-n", "100", filepath.to_str().unwrap()]);
 
         (tail_cmd | self_cmd).join().map(|_| ())
     } else if args.cat {
-        let cat_cmd = Exec::cmd("cat").arg(filepath);
-
-        (cat_cmd | self_cmd).join().map(|_| ())
+        self_cmd.join().map(|_| ())
     } else {
-        let cat_cmd = Exec::cmd("cat").arg(filepath);
-        let pager_cmd = Exec::cmd("less").arg("-SR");
+        let mut self_cmd_stdout = self_cmd.stream_stdout().unwrap();
 
-        (cat_cmd | self_cmd | pager_cmd).join().map(|_| ())
+        let mut prompt = format!("Reading log: {}", filename);
+        prompt = prompt.replace(":", "\\:");
+        prompt = prompt.replace(".", "\\.");
+        prompt = prompt.replace("?", "\\?");
+
+        prompt = format!("{} ?e(END):[%Pt\\%].", prompt);
+
+        let pager_cmd = Exec::cmd("less")
+            .arg("-SR")
+            .arg("+G")
+            .arg("--header=0,5")
+            .arg(format!("--prompt={}", prompt));
+
+        let mut pager_cmd_stdin = pager_cmd.stream_stdin().unwrap();
+
+        let _ = copy(&mut self_cmd_stdout, &mut pager_cmd_stdin);
+
+        Ok(())
     }
 }
 
