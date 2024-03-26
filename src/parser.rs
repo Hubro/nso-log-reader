@@ -86,8 +86,11 @@ fn parse_line(line: &str) -> Option<NormalLogLine> {
     let severity = match &line[severity_start..severity_end] {
         "DEBUG" => Severity::Debug,
         "INFO" => Severity::Info,
+        "WARN" => Severity::Warning,
         "WARNING" => Severity::Warning,
+        "ERR" => Severity::Error,
         "ERROR" => Severity::Error,
+        "CRIT" => Severity::Critical,
         "CRITICAL" => Severity::Critical,
         _ => return None,
     };
