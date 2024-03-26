@@ -112,8 +112,6 @@ fn main() {
 fn parse_from_stdin(args: &Args) {
     let bufreader = BufReader::new(std::io::stdin());
 
-    dbg!(args.time);
-
     for line in parse_log(bufreader.lines()) {
         print_logline(
             &line,
