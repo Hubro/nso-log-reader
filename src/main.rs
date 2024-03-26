@@ -150,7 +150,7 @@ fn parse_from_file(args: &Args) -> subprocess::Result<()> {
         prompt = prompt.replace(".", "\\.");
         prompt = prompt.replace("?", "\\?");
 
-        prompt = format!("{} ?e(END):[%Pt\\%].", prompt);
+        prompt = format!("{} ?e(END):[page %dm/%D] [%Pt\\%].", prompt);
 
         let pager_cmd = Exec::cmd("less")
             .arg("-SR")
