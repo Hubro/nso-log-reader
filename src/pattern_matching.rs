@@ -25,11 +25,16 @@ pub fn match_pattern(patterns: &Vec<String>) -> Result<Vec<String>, String> {
         true
     };
 
-    let matches: Vec<String> = log_files
+    let mut matches: Vec<String> = log_files
         .iter()
         .map(|path| path.file_name().unwrap().to_str().unwrap().to_string())
         .filter(matches_patterns)
         .collect();
+
+    matches.sort_by(|a, b| match a.len().cmp(&b.len()) {
+        std::cmp::Ordering::Equal => a.cmp(&b),
+        x => x,
+    });
 
     Ok(matches)
 }

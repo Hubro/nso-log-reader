@@ -1,5 +1,5 @@
 use std::{
-    io::{BufReader, Lines, Read},
+    io::{BufRead, BufReader, Lines, Read},
     str::FromStr,
 };
 
@@ -68,9 +68,9 @@ impl<T: Read> Iterator for LogParser<T> {
     }
 }
 
-pub fn parse_log<T: Read>(lines: Lines<BufReader<T>>) -> LogParser<T> {
+pub fn parse_log<T: Read>(source: T) -> LogParser<T> {
     LogParser {
-        lines,
+        lines: BufReader::new(source).lines(),
         severity: None,
     }
 }

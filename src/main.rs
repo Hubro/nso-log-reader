@@ -1,6 +1,5 @@
-use std::cmp::Ordering;
 use std::fs::File;
-use std::io::{copy, BufRead, BufReader};
+use std::io::{Read, Write};
 use std::path::Path;
 use std::process::exit;
 
@@ -63,158 +62,141 @@ impl Args {
 
         args
     }
-
-    /// Creates and returns a command for running this application with these arguments
-    ///
-    /// Only includes options, as that's currently the only use case.
-    fn make_cmd(&self) -> Exec {
-        let self_cmd = std::env::args().next().unwrap();
-        let mut cmd = Exec::cmd(self_cmd);
-
-        if self.follow {
-            cmd = cmd.arg("-f");
-        }
-        if self.cat {
-            cmd = cmd.arg("-c");
-        }
-        if self.time {
-            cmd = cmd.arg("-t");
-        }
-
-        cmd
-    }
 }
 
 fn main() {
     let args = Args::custom_parse();
 
-    if args.logfile.is_some() {
-        let result = parse_from_file(&args);
-
-        if let Err(error) = result {
-            println!("{}", error);
-            exit(1);
-        }
-        return;
+    if let Err(error) = run_program(args) {
+        // Write the error to STDERR
+        eprintln!("{}", error);
+        exit(1);
     }
-
-    if !args.patterns.is_empty() {
-        let result = parse_from_pattern(&args);
-
-        if let Err(error) = result {
-            println!("{}", error);
-            exit(1);
-        }
-        return;
-    }
-
-    // No arguments given and STDIN is a TTY, just print help and exit
-    if atty::is(atty::Stream::Stdin) {
-        return Args::command().print_help().unwrap();
-    }
-
-    parse_from_stdin(&args)
 }
 
-fn parse_from_stdin(args: &Args) {
-    let bufreader = BufReader::new(std::io::stdin());
+fn run_program(args: Args) -> Result<(), String> {
+    let filename: String;
+    let filepath: Option<String>;
+    let source: Box<dyn std::io::Read>;
+    let mut target: Box<dyn std::io::Write>;
 
-    for line in parse_log(bufreader.lines()) {
+    //
+    // Figure out the source
+    //
+
+    if let Some(logfile) = args.logfile {
+        filepath = Some(logfile.to_string());
+        filename = Path::new(&logfile)
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
+    } else if !args.patterns.is_empty() {
+        let matches = match_pattern(&args.patterns)?;
+
+        if args.print_matches {
+            println!(
+                "{}",
+                matches
+                    .iter()
+                    .enumerate()
+                    .map(|(i, x)| {
+                        if i == 0 {
+                            "* ".to_string() + x
+                        } else {
+                            "- ".to_string() + x
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            );
+
+            return Ok(());
+        }
+
+        filepath = Some(format!(
+            "{}/logs/{}",
+            std::env::var("NSO_RUN_DIR").unwrap(),
+            &matches[0],
+        ));
+        filename = Path::new(filepath.as_ref().unwrap())
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
+    } else if atty::is(atty::Stream::Stdin) {
+        // No logfile arguments and STDIN is a TTY, just print help msg and exit
+        return Args::command().print_help().map_err(|err| err.to_string());
+    } else {
+        filename = "(STDIN)".to_string();
+        filepath = None;
+    }
+
+    source = if let Some(filepath) = filepath {
+        if args.follow {
+            Box::new(tail(&filepath)?)
+        } else {
+            Box::new(File::open(filepath).map_err(|err| err.to_string())?)
+        }
+    } else {
+        Box::new(std::io::stdin())
+    };
+
+    //
+    // Figure out the target
+    //
+    // (--follow implies --cat)
+    //
+    if args.cat || args.follow {
+        target = Box::new(std::io::stdout());
+    } else {
+        target = Box::new(pager(&filename)?);
+    }
+
+    //
+    // Parse away!
+    //
+
+    for logline in parse_log(source) {
         print_logline(
-            &line,
+            &logline,
+            &mut target,
             match args.time {
                 true => &DateFormat::TimeOnly,
                 false => &DateFormat::Full,
             },
-        );
+        )
+        .map_err(|err| err.to_string())?;
     }
+
+    Ok(())
 }
 
-fn parse_from_file(args: &Args) -> subprocess::Result<()> {
-    let filepath = Path::new(args.logfile.as_ref().unwrap());
-    let filename = filepath.file_name().unwrap().to_str().unwrap();
+/// Parses a log file from the logfile command line option
+fn pager(filename: &str) -> Result<impl Write, String> {
+    let mut prompt = format!("Reading log: {}", filename);
+    prompt = prompt.replace(":", "\\:");
+    prompt = prompt.replace(".", "\\.");
+    prompt = prompt.replace("?", "\\?");
 
-    let self_cmd = args.make_cmd().stdin(File::open(filepath).unwrap());
+    prompt = format!("{} ?e(END):[page %dm/%D] [%Pt\\%].", prompt);
 
-    if args.follow {
-        let tail_cmd = Exec::cmd("tail").args(&["-f", "-n", "100", filepath.to_str().unwrap()]);
+    let pager_cmd = Exec::cmd("less")
+        .arg("-SR")
+        .arg("+G")
+        .arg("--header=0,5")
+        .arg(format!("--prompt={}", prompt));
 
-        (tail_cmd | self_cmd).join().map(|_| ())
-    } else if args.cat {
-        self_cmd.join().map(|_| ())
-    } else {
-        let mut self_cmd_stdout = self_cmd.stream_stdout().unwrap();
-
-        let mut prompt = format!("Reading log: {}", filename);
-        prompt = prompt.replace(":", "\\:");
-        prompt = prompt.replace(".", "\\.");
-        prompt = prompt.replace("?", "\\?");
-
-        prompt = format!("{} ?e(END):[page %dm/%D] [%Pt\\%].", prompt);
-
-        let pager_cmd = Exec::cmd("less")
-            .arg("-SR")
-            .arg("+G")
-            .arg("--header=0,5")
-            .arg(format!("--prompt={}", prompt));
-
-        let mut pager_cmd_stdin = pager_cmd.stream_stdin().unwrap();
-
-        let _ = copy(&mut self_cmd_stdout, &mut pager_cmd_stdin);
-
-        Ok(())
-    }
+    pager_cmd.stream_stdin().map_err(|err| err.to_string())
 }
 
-fn parse_from_pattern(args: &Args) -> Result<(), String> {
-    let patterns = &args.patterns;
-
-    let mut matches = match match_pattern(patterns) {
-        Ok(x) => x,
-        Err(x) => return Err(format!("Failed to search for log files: {}", x)),
-    };
-
-    matches.sort_by(|a, b| match a.len().cmp(&b.len()) {
-        Ordering::Equal => a.cmp(&b),
-        x => x,
-    });
-
-    if args.print_matches {
-        println!(
-            "{}",
-            matches
-                .iter()
-                .enumerate()
-                .map(|(i, x)| {
-                    if i == 0 {
-                        "* ".to_string() + x
-                    } else {
-                        "- ".to_string() + x
-                    }
-                })
-                .collect::<Vec<_>>()
-                .join("\n")
-        );
-
-        return Ok(());
-    }
-
-    let filepath = format!(
-        "{}/logs/{}",
-        std::env::var("NSO_RUN_DIR").unwrap(),
-        &matches[0],
-    );
-
-    let new_args = Args {
-        patterns: vec![],
-        logfile: Some(filepath),
-        follow: args.follow,
-        cat: args.cat,
-        time: args.time,
-        print_matches: args.print_matches,
-    };
-
-    parse_from_file(&new_args).map_err(|e| e.to_string())
+fn tail(filepath: &str) -> Result<impl Read, String> {
+    Exec::cmd("tail")
+        .args(&["-f", "-n", "100", filepath])
+        .stream_stdout()
+        .map_err(|err| err.to_string())
 }
 
 fn file_exists(filepath: &str) -> Result<String, String> {

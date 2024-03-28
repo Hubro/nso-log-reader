@@ -1,6 +1,9 @@
-use crate::parser::{LogLine, Severity};
+use std::io::Write;
+
 use owo_colors::colors::{Blue, Default, Green, Magenta, Red, Yellow};
 use owo_colors::OwoColorize;
+
+use crate::parser::{LogLine, Severity};
 
 type DebugColor = Magenta;
 type InfoColor = Green;
@@ -13,29 +16,38 @@ pub enum DateFormat {
     TimeOnly,
 }
 
-pub fn print_logline(logline: &LogLine, dateformat: &DateFormat) {
+pub fn print_logline(
+    logline: &LogLine,
+    target: &mut impl Write,
+    dateformat: &DateFormat,
+) -> std::io::Result<()> {
+    // A shortcut macro for writing to 'target'
+    macro_rules! put {
+        ($($arg:tt)*) => {
+            write!(target, $($arg)*)
+        };
+    }
+
     match logline {
         LogLine::Continuation(logline) => {
             let text = format!("   | {}", logline.text);
 
             match logline.severity {
                 // If part of an error, print the whole message red, for visibility
-                Some(Severity::Error | Severity::Critical) => {
-                    print!("{}", text.fg::<ErrorColor>())
-                }
-                _ => print!("{}", text.fg::<Default>()),
+                Some(Severity::Error | Severity::Critical) => put!("{}", text.fg::<ErrorColor>())?,
+                _ => put!("{}", text.fg::<Default>())?,
             }
         }
         LogLine::Normal(logline) => {
             match logline.severity {
-                Severity::Debug => print!("{}", " DBG".fg::<DebugColor>().bold()),
-                Severity::Info => print!("{}", "INFO".fg::<InfoColor>().bold()),
-                Severity::Warning => print!("{}", "WARN".fg::<WarningColor>().bold()),
-                Severity::Error => print!("{}", " ERR".fg::<ErrorColor>().bold()),
-                Severity::Critical => print!("{}", " ERR".fg::<ErrorColor>().bold()),
+                Severity::Debug => put!("{}", " DBG".fg::<DebugColor>().bold())?,
+                Severity::Info => put!("{}", "INFO".fg::<InfoColor>().bold())?,
+                Severity::Warning => put!("{}", "WARN".fg::<WarningColor>().bold())?,
+                Severity::Error => put!("{}", " ERR".fg::<ErrorColor>().bold())?,
+                Severity::Critical => put!("{}", " ERR".fg::<ErrorColor>().bold())?,
             };
 
-            print!(
+            put!(
                 " {}",
                 logline
                     .datetime
@@ -45,19 +57,21 @@ pub fn print_logline(logline: &LogLine, dateformat: &DateFormat) {
                     })
                     .fg::<Blue>()
                     .bold()
-            );
+            )?;
 
-            print!(" {}", logline.logger_name.fg::<WarningColor>().bold());
+            put!(" {}", logline.logger_name.fg::<WarningColor>().bold())?;
 
             match logline.severity {
                 // If part of an error, print the whole message red, for visibility
                 Severity::Error | Severity::Critical => {
-                    print!(": {}", logline.message.fg::<ErrorColor>())
+                    put!(": {}", logline.message.fg::<ErrorColor>())?
                 }
-                _ => print!(": {}", logline.message.fg::<Default>()),
+                _ => put!(": {}", logline.message.fg::<Default>())?,
             }
         }
     }
 
-    println!();
+    put!("\n")?;
+
+    Ok(())
 }
