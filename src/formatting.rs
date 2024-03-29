@@ -30,7 +30,7 @@ pub fn print_logline(
 
     match logline {
         LogLine::Continuation(logline) => {
-            let text = format!("   | {}", logline.text);
+            let text = format!("   ┃ {}", logline.text);
 
             match logline.severity {
                 // If part of an error, print the whole message red, for visibility
