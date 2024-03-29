@@ -61,7 +61,7 @@ pub fn print_logline(
                 Severity::Info => putc!("INFO".bold()),
                 Severity::Warning => putc!("WARN".bold()),
                 Severity::Error => putc!(" ERR".bold()),
-                Severity::Critical => putc!(" ERR".bold()),
+                Severity::Critical => putc!("CRIT".bold()),
             };
 
             put!(
