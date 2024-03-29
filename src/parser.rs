@@ -44,6 +44,15 @@ pub enum LogLine {
     Continuation(ContinuationLogLine),
 }
 
+impl LogLine {
+    pub fn severity(&self) -> Option<Severity> {
+        match self {
+            LogLine::Normal(logline) => Some(logline.severity),
+            LogLine::Continuation(logline) => logline.severity,
+        }
+    }
+}
+
 pub struct LogParser<T: Read> {
     lines: Lines<BufReader<T>>,
     severity: Option<Severity>, // Keeps track of the previous line's severity

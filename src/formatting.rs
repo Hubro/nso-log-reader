@@ -21,30 +21,47 @@ pub fn print_logline(
     target: &mut impl Write,
     dateformat: &DateFormat,
 ) -> std::io::Result<()> {
-    // A shortcut macro for writing to 'target'
+    // Shortcut for writing to 'target'
     macro_rules! put {
         ($($arg:tt)*) => {
             write!(target, $($arg)*)
         };
     }
 
+    // Shortcut for writing to 'target' with the current severity color
+    macro_rules! putc {
+        ($string:expr) => {
+            match logline.severity() {
+                Some(Severity::Debug) => put!("{}", $string.fg::<DebugColor>())?,
+                Some(Severity::Info) => put!("{}", $string.fg::<InfoColor>())?,
+                Some(Severity::Warning) => put!("{}", $string.fg::<WarningColor>())?,
+                Some(Severity::Error) => put!("{}", $string.fg::<ErrorColor>())?,
+                Some(Severity::Critical) => put!("{}", $string.fg::<ErrorColor>())?,
+                None => put!("{}", $string.fg::<Default>())?,
+            }
+        };
+    }
+
     match logline {
         LogLine::Continuation(logline) => {
-            let text = format!("   ┃ {}", logline.text);
+            putc!("   ┃ ");
 
             match logline.severity {
-                // If part of an error, print the whole message red, for visibility
-                Some(Severity::Error | Severity::Critical) => put!("{}", text.fg::<ErrorColor>())?,
-                _ => put!("{}", text.fg::<Default>())?,
-            }
+                Some(Severity::Error | Severity::Critical) => {
+                    putc!(logline.text);
+                }
+                _ => {
+                    put!("{}", logline.text)?;
+                }
+            };
         }
         LogLine::Normal(logline) => {
             match logline.severity {
-                Severity::Debug => put!("{}", " DBG".fg::<DebugColor>().bold())?,
-                Severity::Info => put!("{}", "INFO".fg::<InfoColor>().bold())?,
-                Severity::Warning => put!("{}", "WARN".fg::<WarningColor>().bold())?,
-                Severity::Error => put!("{}", " ERR".fg::<ErrorColor>().bold())?,
-                Severity::Critical => put!("{}", " ERR".fg::<ErrorColor>().bold())?,
+                Severity::Debug => putc!(" DBG".bold()),
+                Severity::Info => putc!("INFO".bold()),
+                Severity::Warning => putc!("WARN".bold()),
+                Severity::Error => putc!(" ERR".bold()),
+                Severity::Critical => putc!(" ERR".bold()),
             };
 
             put!(
