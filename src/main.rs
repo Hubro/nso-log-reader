@@ -96,29 +96,34 @@ fn run_program(args: Args) -> Result<(), String> {
         let matches = match_pattern(&args.patterns)?;
 
         if args.print_matches {
-            println!(
-                "{}",
-                matches
-                    .iter()
-                    .enumerate()
-                    .map(|(i, x)| {
-                        if i == 0 {
-                            "* ".to_string() + x
-                        } else {
-                            "- ".to_string() + x
-                        }
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            );
+            match matches.len() {
+                0 => println!("No matches"),
+                _ => println!(
+                    "{}",
+                    matches
+                        .iter()
+                        .enumerate()
+                        .map(|(i, x)| {
+                            if i == 0 {
+                                "* ".to_string() + x
+                            } else {
+                                "- ".to_string() + x
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                ),
+            };
 
             return Ok(());
         }
 
+        let best_match = matches.get(0).ok_or("No matches")?;
+
         filepath = Some(format!(
             "{}/logs/{}",
             std::env::var("NSO_RUN_DIR").unwrap(),
-            &matches[0],
+            best_match,
         ));
         filename = Path::new(filepath.as_ref().unwrap())
             .file_name()
