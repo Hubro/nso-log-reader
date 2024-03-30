@@ -1,5 +1,8 @@
 use std::{
-    io::{BufRead, BufReader, Lines, Read},
+    fs::File,
+    io::{BufRead, BufReader, Lines, Read, Stdin},
+    os::fd::AsRawFd,
+    process::ChildStdout,
     str::FromStr,
 };
 
@@ -53,12 +56,58 @@ impl LogLine {
     }
 }
 
-pub struct LogParser<T: Read> {
+pub enum ParseSource {
+    Stdin(Stdin),
+    /// Filename, file
+    File(File),
+    /// Filename, tail stdout
+    Tail(ChildStdout),
+}
+
+impl From<Stdin> for ParseSource {
+    fn from(stdin: Stdin) -> Self {
+        Self::Stdin(stdin)
+    }
+}
+
+impl From<File> for ParseSource {
+    fn from(file: File) -> Self {
+        Self::File(file)
+    }
+}
+
+impl From<ChildStdout> for ParseSource {
+    fn from(tail_stdout: ChildStdout) -> Self {
+        Self::Tail(tail_stdout)
+    }
+}
+
+impl Read for ParseSource {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        match self {
+            ParseSource::Stdin(stdin) => stdin.read(buf),
+            ParseSource::File(file) => file.read(buf),
+            ParseSource::Tail(tail_stdout) => tail_stdout.read(buf),
+        }
+    }
+}
+
+impl AsRawFd for ParseSource {
+    fn as_raw_fd(&self) -> std::os::unix::prelude::RawFd {
+        match self {
+            ParseSource::Stdin(stdin) => stdin.as_raw_fd(),
+            ParseSource::File(file) => file.as_raw_fd(),
+            ParseSource::Tail(tail_stdout) => tail_stdout.as_raw_fd(),
+        }
+    }
+}
+
+pub struct LogParser<T: Read + AsRawFd> {
     lines: Lines<BufReader<T>>,
     severity: Option<Severity>, // Keeps track of the previous line's severity
 }
 
-impl<T: Read> Iterator for LogParser<T> {
+impl<T: Read + AsRawFd> Iterator for LogParser<T> {
     type Item = LogLine;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -77,7 +126,7 @@ impl<T: Read> Iterator for LogParser<T> {
     }
 }
 
-pub fn parse_log<T: Read>(source: T) -> LogParser<T> {
+pub fn parse_log(source: ParseSource) -> LogParser<impl Read + AsRawFd> {
     LogParser {
         lines: BufReader::new(source).lines(),
         severity: None,

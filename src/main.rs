@@ -1,18 +1,19 @@
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::{stdin, Write};
 use std::path::Path;
 use std::process::exit;
 
 use clap::{CommandFactory, Parser};
 use subprocess::Exec;
 
-use crate::formatting::{print_logline, DateFormat};
-use crate::parser::parse_log;
-use crate::pattern_matching::match_pattern;
-
 mod formatting;
+use formatting::{print_logline, DateFormat};
 mod parser;
+use parser::{parse_log, ParseSource};
 mod pattern_matching;
+use pattern_matching::match_pattern;
+mod tail;
+use tail::tail;
 
 const HELP_TEXT: &str = "
     Input one or more patterns to match a log file to read. The selected log file has to match
@@ -76,8 +77,7 @@ fn main() {
 
 fn run_program(args: Args) -> Result<(), String> {
     let filename: String;
-    let filepath: Option<String>;
-    let source: Box<dyn std::io::Read>;
+    let source: ParseSource;
     let mut target: Box<dyn std::io::Write>;
 
     //
@@ -85,13 +85,18 @@ fn run_program(args: Args) -> Result<(), String> {
     //
 
     if let Some(logfile) = args.logfile {
-        filepath = Some(logfile.to_string());
         filename = Path::new(&logfile)
             .file_name()
             .unwrap()
             .to_str()
             .unwrap()
             .to_string();
+
+        if args.follow {
+            source = tail(&logfile)?.into();
+        } else {
+            source = File::open(&logfile).map_err(|err| err.to_string())?.into();
+        }
     } else if !args.patterns.is_empty() {
         let matches = match_pattern(&args.patterns)?;
 
@@ -120,34 +125,30 @@ fn run_program(args: Args) -> Result<(), String> {
 
         let best_match = matches.get(0).ok_or("No matches")?;
 
-        filepath = Some(format!(
+        let filepath = format!(
             "{}/logs/{}",
             std::env::var("NSO_RUN_DIR").unwrap(),
             best_match,
-        ));
-        filename = Path::new(filepath.as_ref().unwrap())
+        );
+        filename = Path::new(&filepath)
             .file_name()
             .unwrap()
             .to_str()
             .unwrap()
             .to_string();
+
+        if args.follow {
+            source = tail(&filepath)?.into();
+        } else {
+            source = File::open(&filepath).map_err(|err| err.to_string())?.into();
+        }
     } else if atty::is(atty::Stream::Stdin) {
         // No logfile arguments and STDIN is a TTY, just print help msg and exit
         return Args::command().print_help().map_err(|err| err.to_string());
     } else {
-        filename = "(STDIN)".to_string();
-        filepath = None;
+        filename = "(STDIN)".into();
+        source = stdin().into();
     }
-
-    source = if let Some(filepath) = filepath {
-        if args.follow {
-            Box::new(tail(&filepath)?)
-        } else {
-            Box::new(File::open(filepath).map_err(|err| err.to_string())?)
-        }
-    } else {
-        Box::new(std::io::stdin())
-    };
 
     //
     // Figure out the target
@@ -195,13 +196,6 @@ fn pager(filename: &str) -> Result<impl Write, String> {
         .arg(format!("--prompt={}", prompt));
 
     pager_cmd.stream_stdin().map_err(|err| err.to_string())
-}
-
-fn tail(filepath: &str) -> Result<impl Read, String> {
-    Exec::cmd("tail")
-        .args(&["-f", "-n", "100", filepath])
-        .stream_stdout()
-        .map_err(|err| err.to_string())
 }
 
 fn file_exists(filepath: &str) -> Result<String, String> {
