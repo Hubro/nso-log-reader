@@ -7,7 +7,7 @@ use std::{
     time::Duration,
 };
 
-use chrono::{TimeZone, Utc};
+use chrono::NaiveDateTime;
 use timeout_readwrite::TimeoutReadExt;
 
 #[derive(Clone, Copy, Debug)]
@@ -204,9 +204,10 @@ fn parse_line(line: &str) -> Option<NormalLogLine> {
             .find(|(_, x)| *x == ' ')?
             .0;
 
-    let datetime = Utc
-        .datetime_from_str(&line[date_start..date_end], "%d-%b-%Y::%H:%M:%S%.3f")
-        .ok()?;
+    let datetime =
+        NaiveDateTime::parse_from_str(&line[date_start..date_end], "%d-%b-%Y::%H:%M:%S%.3f")
+            .ok()?
+            .and_utc();
 
     let logger_name_start = date_end + 1;
     let logger_name_end = logger_name_start

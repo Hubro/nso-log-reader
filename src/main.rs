@@ -29,7 +29,7 @@ const HELP_TEXT: &str = "
 #[clap(about = HELP_TEXT)]
 struct Args {
     /// Read a NSO log file by matching substrings
-    #[clap(value_parser, multiple_values = true)]
+    #[clap(value_parser)]
     patterns: Vec<String>,
 
     /// The path to a log file to parse
