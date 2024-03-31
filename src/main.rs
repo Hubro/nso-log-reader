@@ -123,7 +123,7 @@ fn run_program(args: Args) -> Result<(), String> {
             return Ok(());
         }
 
-        let best_match = matches.get(0).ok_or("No matches")?;
+        let best_match = matches.first().ok_or("No matches")?;
 
         let filepath = format!(
             "{}/logs/{}",
@@ -183,9 +183,9 @@ fn run_program(args: Args) -> Result<(), String> {
 /// Parses a log file from the logfile command line option
 fn pager(filename: &str) -> Result<impl Write, String> {
     let mut prompt = format!("Reading log: {}", filename);
-    prompt = prompt.replace(":", "\\:");
-    prompt = prompt.replace(".", "\\.");
-    prompt = prompt.replace("?", "\\?");
+    prompt = prompt.replace(':', "\\:");
+    prompt = prompt.replace('.', "\\.");
+    prompt = prompt.replace('?', "\\?");
 
     prompt = format!("{} ?e(END):[page %dm/%D] [%Pt\\%].", prompt);
 

@@ -32,7 +32,7 @@ pub fn match_pattern(patterns: &Vec<String>) -> Result<Vec<String>, String> {
         .collect();
 
     matches.sort_by(|a, b| match a.len().cmp(&b.len()) {
-        std::cmp::Ordering::Equal => a.cmp(&b),
+        std::cmp::Ordering::Equal => a.cmp(b),
         x => x,
     });
 

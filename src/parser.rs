@@ -121,7 +121,7 @@ impl<T: Read + AsRawFd> Iterator for LogParser<T> {
                     Some(Err(e)) if e.kind() == std::io::ErrorKind::TimedOut => {}
 
                     // Let's panic, just to find out which errors can happen here
-                    Some(Err(e)) => panic!("Fatal error: {}", e.to_string()),
+                    Some(Err(e)) => panic!("Fatal error: {}", e),
 
                     // End of iterator
                     None => return None,
@@ -149,7 +149,7 @@ impl<T: Read + AsRawFd> Iterator for LogParser<T> {
                 }
 
                 // Let's panic, just to find out which errors can happen here
-                Some(Err(e)) => panic!("Fatal error: {}", e.to_string()),
+                Some(Err(e)) => panic!("Fatal error: {}", e),
 
                 // End of iterator
                 None => return Some(LogLine::Normal(log_message)),
@@ -162,7 +162,7 @@ impl<T: Read + AsRawFd> Iterator for LogParser<T> {
                 }
                 Err(_) => {
                     // Add next_line as a new line to the end of log_message.message
-                    log_message.message.push_str("\n");
+                    log_message.message.push('\n');
                     log_message.message.push_str(&next_line);
                 }
             }
@@ -226,7 +226,7 @@ fn parse_line(line: &str) -> Option<NormalLogLine> {
     // ncs-python-vm-*.log (for some reason) uses ": - " as the message delimiter, but
     // ncs-python-vm.log doesn't
     if &line[message_start..message_start + 2] == "- " {
-        message_start = message_start + 2;
+        message_start += 2;
     }
 
     if message_start >= line.chars().count() {
