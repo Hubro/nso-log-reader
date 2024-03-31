@@ -192,7 +192,6 @@ fn pager(filename: &str) -> Result<impl Write, String> {
     let pager_cmd = Exec::cmd("less")
         .arg("-SR")
         .arg("+G")
-        .arg("--header=0,5")
         .arg(format!("--prompt={}", prompt));
 
     pager_cmd.stream_stdin().map_err(|err| err.to_string())
