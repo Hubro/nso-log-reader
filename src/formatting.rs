@@ -1,6 +1,6 @@
 use std::io::Write;
 
-use owo_colors::colors::{Blue, Default, Green, Magenta, Red, Yellow};
+use owo_colors::colors::{Blue, Green, Magenta, Red, Yellow};
 use owo_colors::OwoColorize;
 
 use crate::parser::{LogLine, Severity};
@@ -28,34 +28,24 @@ pub fn print_logline(
         };
     }
 
-    // Shortcut for writing to 'target' with the current severity color
-    macro_rules! putc {
-        ($string:expr) => {
-            match logline.severity() {
-                Some(Severity::Debug) => put!("{}", $string.fg::<DebugColor>())?,
-                Some(Severity::Info) => put!("{}", $string.fg::<InfoColor>())?,
-                Some(Severity::Warning) => put!("{}", $string.fg::<WarningColor>())?,
-                Some(Severity::Error) => put!("{}", $string.fg::<ErrorColor>())?,
-                Some(Severity::Critical) => put!("{}", $string.fg::<ErrorColor>())?,
-                None => put!("{}", $string.fg::<Default>())?,
-            }
-        };
-    }
-
     match logline {
-        LogLine::Continuation(logline) => {
-            putc!("   ┃ ");
-
-            match logline.severity {
-                Some(Severity::Error | Severity::Critical) => {
-                    putc!(logline.text);
-                }
-                _ => {
-                    put!("{}", logline.text)?;
-                }
-            };
+        LogLine::Dangling(logline) => {
+            put!("{}", logline.text)?;
         }
         LogLine::Normal(logline) => {
+            // Shortcut for writing to 'target' with the current severity color
+            macro_rules! putc {
+                ($string:expr) => {
+                    match logline.severity {
+                        Severity::Debug => put!("{}", $string.fg::<DebugColor>())?,
+                        Severity::Info => put!("{}", $string.fg::<InfoColor>())?,
+                        Severity::Warning => put!("{}", $string.fg::<WarningColor>())?,
+                        Severity::Error => put!("{}", $string.fg::<ErrorColor>())?,
+                        Severity::Critical => put!("{}", $string.fg::<ErrorColor>())?,
+                    }
+                };
+            }
+
             match logline.severity {
                 Severity::Debug => putc!(" DBG".bold()),
                 Severity::Info => putc!("INFO".bold()),
@@ -77,13 +67,37 @@ pub fn print_logline(
             )?;
 
             put!(" {}", logline.logger_name.fg::<WarningColor>().bold())?;
+            put!(":")?;
 
-            match logline.severity {
-                // If part of an error, print the whole message red, for visibility
-                Severity::Error | Severity::Critical => {
-                    put!(": {}", logline.message.fg::<ErrorColor>())?
+            if !logline.message.contains('\n') {
+                // Single-line message
+                match logline.severity {
+                    Severity::Error | Severity::Critical => {
+                        putc!(logline.message.fg::<ErrorColor>());
+                    }
+                    _ => {
+                        put!(" {}", logline.message)?;
+                    }
+                };
+            } else {
+                let line_count = logline.message.lines().count();
+
+                // Multi-line log message, we draw a little box around it
+                for (i, line) in logline.message.lines().enumerate() {
+                    put!("\n")?;
+
+                    if i < (line_count - 1) {
+                        putc!("   │ ");
+                    } else {
+                        putc!("   ╰ ");
+                    }
+
+                    if matches!(logline.severity, Severity::Error | Severity::Critical) {
+                        putc!(line);
+                    } else {
+                        put!("{}", line)?;
+                    }
                 }
-                _ => put!(": {}", logline.message.fg::<Default>())?,
             }
         }
     }

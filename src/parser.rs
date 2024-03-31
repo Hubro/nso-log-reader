@@ -4,9 +4,11 @@ use std::{
     os::fd::AsRawFd,
     process::ChildStdout,
     str::FromStr,
+    time::Duration,
 };
 
 use chrono::{TimeZone, Utc};
+use timeout_readwrite::TimeoutReadExt;
 
 #[derive(Clone, Copy, Debug)]
 pub enum Severity {
@@ -34,26 +36,20 @@ impl FromStr for NormalLogLine {
     }
 }
 
+/// A log line that couldn't be parsed and also couldn't be associated with a previous log line
+///
+/// This happens when the log starts with a cut-off multi-line log message, common when parsing
+/// from "tail".
+///
 #[derive(Debug)]
-pub struct ContinuationLogLine {
-    // None means unknown, can happen if the log starts on a continuation
-    pub severity: Option<Severity>,
+pub struct DanglingLogLine {
     pub text: String,
 }
 
 #[derive(Debug)]
 pub enum LogLine {
     Normal(NormalLogLine),
-    Continuation(ContinuationLogLine),
-}
-
-impl LogLine {
-    pub fn severity(&self) -> Option<Severity> {
-        match self {
-            LogLine::Normal(logline) => Some(logline.severity),
-            LogLine::Continuation(logline) => logline.severity,
-        }
-    }
+    Dangling(DanglingLogLine),
 }
 
 pub enum ParseSource {
@@ -104,32 +100,80 @@ impl AsRawFd for ParseSource {
 
 pub struct LogParser<T: Read + AsRawFd> {
     lines: Lines<BufReader<T>>,
-    severity: Option<Severity>, // Keeps track of the previous line's severity
+    /// Holds the *next* log message, since we need to read ahead to see if the next line is part
+    /// of the current log message
+    buffer: Option<NormalLogLine>,
 }
 
 impl<T: Read + AsRawFd> Iterator for LogParser<T> {
     type Item = LogLine;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let line = self.lines.next()?.expect("Failed to read a line");
+        let mut log_message: NormalLogLine = if let Some(log_message) = self.buffer.take() {
+            log_message
+        } else {
+            let line = loop {
+                match self.lines.next() {
+                    Some(Ok(line)) => break line,
 
-        Some(match line.parse::<NormalLogLine>() {
-            Ok(log_line) => {
-                self.severity = Some(log_line.severity.clone());
-                LogLine::Normal(log_line)
+                    // Do nothing, wait for the next log line to be emitted. This can happen while
+                    // tailing a file or while parsing from STDIN.
+                    Some(Err(e)) if e.kind() == std::io::ErrorKind::TimedOut => {}
+
+                    // Let's panic, just to find out which errors can happen here
+                    Some(Err(e)) => panic!("Fatal error: {}", e.to_string()),
+
+                    // End of iterator
+                    None => return None,
+                };
+            };
+
+            match line.parse::<NormalLogLine>() {
+                Ok(log_message) => log_message,
+                Err(_) => {
+                    return Some(LogLine::Dangling(DanglingLogLine { text: line }));
+                }
             }
-            Err(_) => LogLine::Continuation(ContinuationLogLine {
-                severity: self.severity,
-                text: line,
-            }),
-        })
+        };
+
+        // Read ahead to grab any lines that belong to the same log message. (Any line that can't
+        // be parsed as a new log message.)
+        loop {
+            let next_line = match self.lines.next() {
+                Some(Ok(line)) => line,
+
+                // If we time out, that means we're waiting for new log messages. The means there
+                // are definitely no more lines associated with the current log message.
+                Some(Err(e)) if e.kind() == std::io::ErrorKind::TimedOut => {
+                    return Some(LogLine::Normal(log_message))
+                }
+
+                // Let's panic, just to find out which errors can happen here
+                Some(Err(e)) => panic!("Fatal error: {}", e.to_string()),
+
+                // End of iterator
+                None => return Some(LogLine::Normal(log_message)),
+            };
+
+            match next_line.parse::<NormalLogLine>() {
+                Ok(next_log_message) => {
+                    self.buffer = Some(next_log_message);
+                    return Some(LogLine::Normal(log_message));
+                }
+                Err(_) => {
+                    // Add next_line as a new line to the end of log_message.message
+                    log_message.message.push_str("\n");
+                    log_message.message.push_str(&next_line);
+                }
+            }
+        }
     }
 }
 
 pub fn parse_log(source: ParseSource) -> LogParser<impl Read + AsRawFd> {
     LogParser {
-        lines: BufReader::new(source).lines(),
-        severity: None,
+        lines: BufReader::new(source.with_timeout(Duration::from_millis(10))).lines(),
+        buffer: None,
     }
 }
 
